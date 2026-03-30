@@ -151,7 +151,7 @@
       def log(msg):
           el = document.querySelector("#console")
           el.style.display = "block"
-          el.innerText += f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n"
+          el.innerText += f"{msg}\n"
           el.scrollTop = el.scrollHeight
 
       async def main_process(event):
@@ -166,8 +166,8 @@
 
           try:
               log(f"--- プロセス開始 ---")
-              log(f"--- 対象者: [{target_name}] ---")
-              log(f"--- 処理中... ---")
+              log(f"対象者: [{target_name}]")
+              log(f"処理中...")
               file = files.item(0)
               array_buffer = await file.arrayBuffer()
               pdf_data = io.BytesIO(array_buffer.to_bytes())
@@ -238,7 +238,7 @@
                           "timeZone": "Asia/Tokyo"
                       })
                       
-                      log(f"{target_date.strftime('%m/%d')}: {code} ({st} - {en})")
+                      log(f"{target_date.strftime('%m/%d')} {code} {st} - {en}")
                       count += 1
 
               # JavaScriptを呼び出してボタンを表示
