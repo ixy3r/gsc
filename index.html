@@ -165,7 +165,9 @@
               return
 
           try:
-              log(f"--- プロセス開始: [{target_name}] ---")
+              log(f"--- プロセス開始 ---")
+              log(f"--- 対象者: [{target_name}] ---")
+              log(f"--- 処理中... ---")
               file = files.item(0)
               array_buffer = await file.arrayBuffer()
               pdf_data = io.BytesIO(array_buffer.to_bytes())
@@ -207,7 +209,7 @@
               if not target_codes:
                   raise Exception(f"'{target_name}' さんの行からシフト記号が見つかりませんでした。")
 
-              log(f"計 {len(target_codes)} 件の記号を抽出しました。")
+              log(f"計 {len(target_codes)} 件のイベントを抽出しました。")
 
               # カレンダー登録用のイベントリストを作成
               atcb_events = []
@@ -236,14 +238,14 @@
                           "timeZone": "Asia/Tokyo"
                       })
                       
-                      log(f"  [抽出] {target_date.strftime('%m/%d')}: {code}")
+                      log(f"{target_date.strftime('%m/%d')}: {code} ({st} - {en})")
                       count += 1
 
               # JavaScriptを呼び出してボタンを表示
               window.updateCalendarButton(json.dumps(atcb_events), target_name)
               
-              log(f"--- 完了: {count}件のイベントを準備しました ---")
-              log("上のボタンからカレンダーに登録できます。")
+              log(f"--- 完了: {count}件のイベントを抽出しました ---")
+              log("上の[カレンダーに一括登録]ボタンからカレンダーに登録できます。")
 
           except Exception as e:
               log(f"【エラー】 {str(e)}")
