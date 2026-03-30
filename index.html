@@ -166,8 +166,12 @@
 
           try:
               log(f"--- プロセス開始 ---")
-              log(f"対象者: [{target_name}]")
+              log(f"対象者: {target_name}")
+              
+              log(f"")
               log(f"処理中...")
+              log(f"")
+
               file = files.item(0)
               array_buffer = await file.arrayBuffer()
               pdf_data = io.BytesIO(array_buffer.to_bytes())
@@ -200,7 +204,6 @@
                   line_str = " ".join(row_content)
 
                   if target_name in line_str:
-                      log(f"対象者の行を特定しました。")
                       sorted_keys = sorted(SHIFT_MASTER.keys(), key=len, reverse=True)
                       pattern = r'\b(' + '|'.join(re.escape(k) for k in sorted_keys) + r')\b'
                       target_codes = re.findall(pattern, line_str)
@@ -244,7 +247,7 @@
               # JavaScriptを呼び出してボタンを表示
               window.updateCalendarButton(json.dumps(atcb_events), target_name)
               
-              log(f"--- 完了: {count}件のイベントを抽出しました ---")
+              log(f"--- 完了 ---")
               log("上の[カレンダーに一括登録]ボタンからカレンダーに登録できます。")
 
           except Exception as e:
