@@ -28,6 +28,14 @@
       .container {
         padding: 15px;
       }
+      .discription {
+        margin-bottom: 20px;
+        line-height: 1.6;
+        font-size: 0.8em;
+      }
+      p {
+        margin: 0;
+      }
       .input-group {
         margin-bottom: 15px;
       }
@@ -57,9 +65,6 @@
         width: 100%;
         font-weight: bold;
       }
-      button:hover {
-        background-color: #0056b3;
-      }
       #console {
         margin-top: 20px;
         padding: 15px;
@@ -73,7 +78,6 @@
         max-height: 500px;
         overflow-y: auto;
       }
-      /* ボタンコンテナのスタイル */
       #calendar_button_container {
         display: flex;
         justify-content: center;
@@ -87,39 +91,47 @@
   <body>
     <div class="container">
       <h2>シフト抽出変換ツール</h2>
+      <div class="discription">
+        <p>抽出対象者の名前を入力し、PDFファイルを選択してください。</p>
+        <p>読み込みには時間がかかる場合があります。</p>
+      </div>
       <div class="input-group">
         <label for="target_name">名前</label>
-        <input type="text" id="target_name" placeholder="苗字を入力" />
+        <input
+          type="text"
+          id="target_name"
+          placeholder="抽出対象者の苗字を入力"
+        />
       </div>
       <div class="input-group">
         <label for="pdf_upload">シフトPDFを選択</label>
         <input type="file" id="pdf_upload" accept="application/pdf" />
       </div>
       <button id="run_btn" py-click="main_process">実行</button>
-      
+
       <div id="calendar_button_container"></div>
-      
+
       <div id="console"></div>
     </div>
 
     <script type="text/javascript">
-      window.updateCalendarButton = function(eventsJson, targetName) {
-          const events = JSON.parse(eventsJson);
-          const container = document.getElementById('calendar_button_container');
-          container.innerHTML = ''; 
+      window.updateCalendarButton = function (eventsJson, targetName) {
+        const events = JSON.parse(eventsJson);
+        const container = document.getElementById("calendar_button_container");
+        container.innerHTML = "";
 
-          if (events.length === 0) return;
+        if (events.length === 0) return;
 
-          const btn = document.createElement('add-to-calendar-button');
-          btn.setAttribute('name', `シフト_${targetName}`);
-          btn.setAttribute('options', "['Apple','iCal']");
-          btn.setAttribute('theme', 'dark');
-          btn.setAttribute('listStyle', 'modal');
-          btn.setAttribute('label', 'カレンダーに一括登録');
-          btn.setAttribute('language', 'ja');
-          btn.setAttribute('dates', JSON.stringify(events));
+        const btn = document.createElement("add-to-calendar-button");
+        btn.setAttribute("name", `シフト_${targetName}`);
+        btn.setAttribute("options", "['Apple','iCal']");
+        btn.setAttribute("theme", "dark");
+        btn.setAttribute("listStyle", "modal");
+        btn.setAttribute("label", "カレンダーに一括登録");
+        btn.setAttribute("language", "ja");
+        btn.setAttribute("dates", JSON.stringify(events));
 
-          container.appendChild(btn);
+        container.appendChild(btn);
       };
     </script>
 
@@ -167,7 +179,7 @@
           try:
               log(f"--- プロセス開始 ---")
               log(f"対象者: {target_name}")
-              
+
               log(f"")
               log(f"処理中...")
               log(f"")
@@ -240,13 +252,13 @@
                           "endTime": end_dt.strftime("%H:%M"),
                           "timeZone": "Asia/Tokyo"
                       })
-                      
+
                       log(f"{target_date.strftime('%m/%d')} {code} {st} - {en}")
                       count += 1
 
               # JavaScriptを呼び出してボタンを表示
               window.updateCalendarButton(json.dumps(atcb_events), target_name)
-              
+
               log(f"--- 完了 ---")
               log("上の[カレンダーに一括登録]ボタンからカレンダーに登録できます。")
 
