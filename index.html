@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF Shift to iCS Converter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 600px;
+        margin: 20px auto;
+        padding: 0 15px;
+        line-height: 1.6;
+      }
+      .card {
+        border: 1px solid #ccc;
+        padding: 20px;
+        border-radius: 8px;
+        background: #f9f9f9;
+      }
+      input,
+      button {
+        display: block;
+        width: 100%;
+        margin: 10px 0;
+        padding: 10px;
+        box-sizing: border-box;
+      }
+      button {
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+      }
+      button:disabled {
+        background: #ccc;
+      }
+      #log {
+        font-size: 0.8em;
+        color: #555;
+        white-space: pre-wrap;
+        background: #eee;
+        padding: 10px;
+        margin-top: 10px;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>シフトPDF → iCS変換</h2>
+    <div class="card">
+      <label>検索する名前（例：瀧上）</label>
+      <input
+        type="text"
+        id="targetName"
+        placeholder="苗字を入力"
+        value="瀧上"
+      />
+
+      <label>PDFファイルを選択</label>
+      <input type="file" id="pdfFile" accept="application/pdf" />
+
+      <button id="convertBtn">iCSファイルを生成してダウンロード</button>
+    </div>
+    <div id="log"></div>
+
+    <script>
+      const pdfjsLib = window["pdfjs-dist/build/pdf"];
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+      const log = (msg) => {
+        const logDiv = document.getElementById("log");
+        logDiv.textContent += msg + "\n";
+        logDiv.scrollTop = logDiv.scrollHeight;
+      };
+
+      document
+        .getElementById("convertBtn")
+        .addEventListener("click", async () => {
+          const targetName = document.getElementById("targetName").value.trim();
+          const fileInput = document.getElementById("pdfFile");
+          if (!targetName || !fileInput.files[0]) {
+            alert("名前とPDFファイルを入力してください");
+            return;
+          }
+
+          log("処理開始...");
+          const file = fileInput.files[0];
+          const arrayBuffer = await file.arrayBuffer();
+
+          try {
+            const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+            const page = await pdf.getPage(1);
+            const textContent = await page.getTextContent();
+
+            // 1. テキスト抽出と行の復元 (pdfplumberの代わり)
+            // Y座標が同じテキストを同じ行としてまとめる
+            const items = textContent.items;
+            const lines = {};
+            items.forEach((item) => {
+              const y = Math.round(item.transform[5]);
+              if (!lines[y]) lines[y] = [];
+              lines[y].push({ x: item.transform[4], str: item.str });
+            });
+
+            // Y座標順（上から下）にソートして行を配列化
+            const sortedY = Object.keys(lines).sort((a, b) => b - a);
+            const tableData = sortedY.map((y) => {
+              return lines[y].sort((a, b) => a.x - b.x).map((item) => item.str);
+            });
+
+            const fullText = items.map((i) => i.str).join(" ");
+
+            // 2. 年月の抽出
+            let year = new Date().getFullYear();
+            let month = new Date().getMonth() + 1;
+            const yearMatch = fullText.match(/(\d{4})\s*年/);
+            if (yearMatch) year = parseInt(yearMatch[1]);
+            const monthMatch = fullText.match(
+              /(\d{1,2})\s*月\s*(\d{1,2})\s*日/,
+            );
+            if (monthMatch) month = parseInt(monthMatch[1]);
+
+            log(`対象年: ${year}, 開始月: ${month}`);
+
+            // 3. 時間マッピングの抽出
+            const timeMapping = {};
+            const timePattern =
+              /([A-Z]{1,2})\s*(\d{1,2})\s*[:：]\s*(\d{2})\s*[^0-9]+\s*(\d{1,2})\s*[:：]\s*(\d{2})/g;
+            let m;
+            while ((m = timePattern.exec(fullText)) !== null) {
+              timeMapping[m[1]] = {
+                startH: parseInt(m[2]),
+                startM: parseInt(m[3]),
+                endH: parseInt(m[4]),
+                endM: parseInt(m[5]),
+              };
+            }
+
+            // 4. 日付ヘッダーとターゲット行の特定
+            let dates = [];
+            let targetRow = null;
+            const normalizedTarget = targetName.replace(/\s+/g, "");
+
+            for (const row of tableData) {
+              const rowStr = row.join("");
+              const numericCells = row.filter((c) => /^\d+$/.test(c.trim()));
+
+              if (numericCells.length > 10 && dates.length === 0) {
+                dates = row.filter((c) => /^\d+$/.test(c.trim()));
+              }
+              if (rowStr.replace(/\s+/g, "").includes(normalizedTarget)) {
+                targetRow = row;
+                log("対象者の行を特定しました");
+              }
+            }
+
+            if (!targetRow) throw new Error("対象者が見つかりません");
+
+            // 5. iCS生成
+            let icsContent = [
+              "BEGIN:VCALENDAR",
+              "VERSION:2.0",
+              "PRODID:-//Shift Converter//JP",
+              "X-WR-TIMEZONE:Asia/Tokyo",
+            ];
+
+            let lastDay = 0;
+            let currentMonth = month;
+            let currentYear = year;
+
+            // シフト記号が日付列のどこから始まるか判定（簡易版：数値以外のセルが名前セルと想定）
+            const shiftStartIndex = targetRow.findIndex((c) =>
+              /^[A-Z]{1,2}$/.test(c.trim()),
+            );
+
+            dates.forEach((dayStr, idx) => {
+              const day = parseInt(dayStr);
+              if (day < lastDay) {
+                currentMonth++;
+                if (currentMonth > 12) {
+                  currentMonth = 1;
+                  currentYear++;
+                }
+              }
+              lastDay = day;
+
+              const symbol = targetRow[shiftStartIndex + idx];
+              if (symbol && timeMapping[symbol.trim()]) {
+                const t = timeMapping[symbol.trim()];
+                const start = formatVEventDate(
+                  currentYear,
+                  currentMonth,
+                  day,
+                  t.startH,
+                  t.startM,
+                );
+                let end = formatVEventDate(
+                  currentYear,
+                  currentMonth,
+                  day,
+                  t.endH,
+                  t.endM,
+                );
+
+                // 日を跨ぐ場合
+                if (t.endH < t.startH) {
+                  const d = new Date(currentYear, currentMonth - 1, day + 1);
+                  end = formatVEventDate(
+                    d.getFullYear(),
+                    d.getMonth() + 1,
+                    d.getDate(),
+                    t.endH,
+                    t.endM,
+                  );
+                }
+
+                icsContent.push("BEGIN:VEVENT");
+                icsContent.push(`SUMMARY:${symbol.trim()}`);
+                icsContent.push(`DTSTART:${start}`);
+                icsContent.push(`DTEND:${end}`);
+                icsContent.push(`DESCRIPTION:シフト: ${symbol.trim()}`);
+                icsContent.push("END:VEVENT");
+                log(`抽出: ${day}日 ${symbol.trim()}`);
+              }
+            });
+
+            icsContent.push("END:VCALENDAR");
+            download(icsContent.join("\r\n"), `shift_${year}_${month}.ics`);
+            log("完了！ファイルがダウンロードされます。");
+          } catch (err) {
+            log("エラー: " + err.message);
+            console.error(err);
+          }
+        });
+
+      function formatVEventDate(y, m, d, hh, mm) {
+        const pad = (n) => n.toString().padStart(2, "0");
+        return `${y}${pad(m)}${pad(d)}T${pad(hh)}${pad(mm)}00`;
+      }
+
+      function download(content, filename) {
+        const blob = new Blob([content], {
+          type: "text/calendar;charset=utf-8",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    </script>
+  </body>
+</html>
