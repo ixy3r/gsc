@@ -2,430 +2,226 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>
-      ゴルフシフト PDF → iCS 変換（Python版ロジック完全移植・改善版）
-    </title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <title>シフト抽出変換ツール</title>
+    <link
+      rel="stylesheet"
+      href="https://pyscript.net/releases/2024.1.1/core.css"
+    />
+    <script
+      type="module"
+      src="https://pyscript.net/releases/2024.1.1/core.js"
+    ></script>
     <style>
       body {
-        font-family: system-ui, sans-serif;
-        max-width: 780px;
-        margin: 30px auto;
-        padding: 20px;
-        line-height: 1.6;
-        background: #f9f9f9;
-        color: #333;
+        font-family: sans-serif;
+        max-width: 100vw;
+        margin: 0;
+        padding: 0;
+        color: #ddd;
+        background-color: #000;
       }
-      .card {
-        border: 3px solid #0066cc;
-        padding: 30px;
-        border-radius: 14px;
-        background: #fff;
-        box-shadow: 0 8px 25px rgba(0, 102, 204, 0.15);
+      .container {
+        padding: 15px;
+      }
+      .input-group {
+        margin-bottom: 15px;
       }
       label {
         display: block;
-        margin: 15px 0 5px;
         font-weight: bold;
-        color: #0066cc;
+        margin-bottom: 5px;
       }
-      input,
-      button {
+      input[type="text"],
+      input[type="file"] {
+        background: #333;
+        color: #ddd;
         width: 100%;
-        padding: 14px;
-        margin: 8px 0;
-        border-radius: 8px;
-        border: 1px solid #ccc;
+        padding: 10px;
+        border: 1px solid #444;
+        border-radius: 6px;
         box-sizing: border-box;
-        font-size: 1.05rem;
       }
       button {
-        background: #0066cc;
-        color: white;
+        background-color: #173e67;
+        color: #ddd;
         border: none;
-        font-weight: bold;
+        padding: 14px;
+        border-radius: 6px;
         cursor: pointer;
-        transition: background 0.2s;
+        font-size: 16px;
+        width: 100%;
+        font-weight: bold;
       }
       button:hover {
-        background: #0055aa;
+        background-color: #0056b3;
       }
-      #log {
-        background: #f8f9fa;
-        padding: 18px;
+      #console {
+        margin-top: 20px;
+        padding: 15px;
         border-radius: 8px;
-        max-height: 460px;
+        display: none;
+        white-space: pre-wrap;
+        font-family: "Consolas", monospace;
+        font-size: 12px;
+        background-color: #1e1e1e;
+        color: #d4d4d4;
+        max-height: 500px;
         overflow-y: auto;
-        font-size: 0.9em;
-        line-height: 1.5;
-        border: 1px solid #ddd;
-        font-family: monospace;
-      }
-      .success {
-        color: #28a745;
-        font-weight: bold;
-      }
-      .error {
-        color: #dc3545;
-        font-weight: bold;
       }
     </style>
+    <py-config>
+      packages = ["pdfminer.six", "ics==0.7", "tatsu==5.7.3", "pytz"]
+    </py-config>
   </head>
   <body>
-    <div class="card">
-      <h2>
-        🏌️ 2026年4月ゴルフシフトPDF → iCalendar変換（Python版ロジック完全反映）
-      </h2>
-      <p style="color: #555">
-        Python版（pdfplumber）が正常に動くロジックをフロントエンドで完全に再現。<br />日付ヘッダー検出・名前検索・時間マッピングを大幅強化済み。
-      </p>
-
-      <label>検索する名前（苗字のみ）</label>
-      <input
-        type="text"
-        id="targetName"
-        value=""
-        placeholder="名前を入力"
-      />
-
-      <label>PDFファイルを選択（2026年4月シフト_ゴルフ.pdf）</label>
-      <input type="file" id="pdfFile" accept="application/pdf" />
-
-      <button id="convertBtn">iCSファイルを生成してダウンロード</button>
+    <div class="container">
+      <h2>シフト抽出変換ツール</h2>
+      <div class="input-group">
+        <label for="target_name">名前</label>
+        <input type="text" id="target_name" placeholder="苗字を入力" />
+      </div>
+      <div class="input-group">
+        <label for="pdf_upload">シフトPDFを選択</label>
+        <input type="file" id="pdf_upload" accept="application/pdf" />
+      </div>
+      <button id="run_btn" py-click="main_process">実行</button>
+      <div id="console"></div>
     </div>
 
-    <div id="log">ログがここに表示されます…</div>
+    <script type="py">
+      import io
+      import re
+      from datetime import datetime, timedelta
+      import pytz
+      from ics import Calendar, Event
+      from pdfminer.high_level import extract_pages
+      from pdfminer.layout import LTTextContainer
+      from pyscript import document, window
 
-    <script>
-      const pdfjsLib = window["pdfjs-dist/build/pdf"];
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-
-      const logEl = document.getElementById("log");
-      function log(msg, type = "") {
-        const entry = document.createElement("div");
-        entry.textContent = `[${new Date().toLocaleTimeString("ja-JP")}] ${msg}`;
-        if (type === "success") entry.className = "success";
-        if (type === "error") entry.className = "error";
-        logEl.appendChild(entry);
-        logEl.scrollTop = logEl.scrollHeight;
+      # 勤務区分定義
+      SHIFT_MASTER = {
+          "A": ("07:00", "16:00"), "B": ("08:00", "17:00"), "C": ("08:30", "17:30"),
+          "D": ("09:00", "18:00"), "E": ("10:00", "19:00"), "J": ("14:15", "23:15"),
+          "NL": ("08:30", "17:30"), "G": ("13:00", "17:00"), "FG": ("13:00", "17:00"),
+          "5-14": ("05:00", "14:00"), "FA": ("08:30", "15:00"), "FB": ("08:30", "16:00"),
+          "FC": ("08:30", "13:00"), "FD": ("11:00", "17:00"), "FE": ("12:00", "18:00"),
+          "FF": ("12:00", "20:00"), "FH": ("13:00", "22:00"), "FI": ("13:15", "22:15"),
+          "FJ": ("14:00", "23:00"), "FK": ("15:00", "23:00"), "FL": ("17:00", "23:00"),
+          "FM": ("18:00", "23:00"), "FN": ("19:00", "23:00"), "FO": ("20:00", "23:00"),
+          "FP": ("06:00", "15:00"), "FQ": ("08:00", "16:00"), "FR": ("08:00", "13:00"),
+          "FS": ("09:00", "18:00"), "FT": ("09:00", "14:00"), "FU": ("10:00", "19:00"),
+          "FV": ("11:00", "19:00")
       }
 
-      document
-        .getElementById("convertBtn")
-        .addEventListener("click", async () => {
-          const targetName = document.getElementById("targetName").value.trim();
-          const file = document.getElementById("pdfFile").files[0];
+      def log(msg):
+          el = document.querySelector("#console")
+          el.style.display = "block"
+          el.innerText += f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n"
+          el.scrollTop = el.scrollHeight
 
-          if (!targetName || !file) {
-            alert("名前とPDFファイルを選択してください");
-            return;
-          }
+      async def main_process(event):
+          target_name = document.querySelector("#target_name").value.strip()
+          files = document.querySelector("#pdf_upload").files
+          document.querySelector("#console").innerText = ""
 
-          logEl.innerHTML = "";
-          log("🚀 PDF解析を開始します…", "success");
+          if not target_name or len(files) == 0:
+              window.alert("名前とファイルを入力してください")
+              return
 
-          try {
-            const arrayBuffer = await file.arrayBuffer();
-            const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
-            const page = await pdf.getPage(1);
-            const textContent = await page.getTextContent();
+          try:
+              log(f"--- プロセス開始: [{target_name}] ---")
+              file = files.item(0)
+              array_buffer = await file.arrayBuffer()
+              pdf_data = io.BytesIO(array_buffer.to_bytes())
 
-            const items = textContent.items
-              .map((item) => ({
-                str: item.str.trim(),
-                x: Math.round(item.transform[4]),
-                y: Math.round(item.transform[5]),
-              }))
-              .filter((i) => i.str.length > 0);
+              # 1. 座標に基づいた行の再構築 (pdfplumberのロジックに相当)
+              rows = {}
+              full_text_for_date = ""
 
-            const rows = groupIntoRows(items, 8);
+              for page_layout in extract_pages(pdf_data):
+                  for element in page_layout:
+                      if isinstance(element, LTTextContainer):
+                          text = element.get_text().strip()
+                          if not text: continue
+                          full_text_for_date += text + "\n"
 
-            log(`📄 ${rows.length}行を検出`);
+                          # Y座標をある程度丸めて同じ行として扱う (誤差吸収のため整数化)
+                          y_key = int(element.y0)
+                          if y_key not in rows: rows[y_key] = []
+                          rows[y_key].append((element.x0, text))
 
-            const { columnXs, daySequence, startYear, startMonth } =
-              findDateHeader(rows);
-            if (!columnXs)
-              throw new Error("日付ヘッダーが見つかりませんでした");
+              # 2. 基準日の特定
+              year_match = re.search(r'(\d{4})\s*年', full_text_for_date)
+              month_match = re.search(r'(\d{1,2})\s*月\s*(\d{1,2})\s*日', full_text_for_date)
+              if not year_match or not month_match:
+                  raise Exception("日付（◯年◯月◯日）を特定できませんでした。")
 
-            log(
-              `📅 ${daySequence.length}日分の日付を検出（${startYear}年${startMonth}月〜）`,
-              "success",
-            );
+              start_dt = datetime(int(year_match.group(1)), int(month_match.group(1)), int(month_match.group(2)))
+              log(f"期間開始日: {start_dt.strftime('%Y/%m/%d')}")
 
-            const targetRow = findTargetRow(rows, targetName);
-            if (!targetRow)
-              throw new Error(
-                `「${targetName}」さんの行が見つかりませんでした`,
-              );
+              # 3. 名前を含む「行」を特定し、記号を順番に取得
+              target_codes = []
+              # 画面上部から順にループ (Y座標が大きい順)
+              for y in sorted(rows.keys(), reverse=True):
+                  # 同じ行内でX座標順にソート
+                  items = sorted(rows[y], key=lambda x: x[0])
+                  row_content = [it[1] for it in items]
+                  line_str = " ".join(row_content)
 
-            log(`👤 「${targetName}」さんのシフト行を特定`, "success");
+                  if target_name in line_str:
+                      log(f"対象者の行を特定しました。")
 
-            const timeMapping = extractTimeMapping(items);
-            log(`🕒 ${Object.keys(timeMapping).length}件の時間定義を抽出`);
+                      # 勤務区分マスターにある記号を順番に抽出
+                      sorted_keys = sorted(SHIFT_MASTER.keys(), key=len, reverse=True)
+                      pattern = r'\b(' + '|'.join(re.escape(k) for k in sorted_keys) + r')\b'
 
-            const events = extractEvents(
-              targetRow,
-              columnXs,
-              daySequence,
-              startYear,
-              startMonth,
-              timeMapping,
-              targetName,
-            );
+                      # 名前の直後にある「数字のみ」や「曜日」を飛ばして記号を拾うため
+                      # 行の内容全体から記号をリスト化
+                      target_codes = re.findall(pattern, line_str)
+                      break
 
-            if (events.length === 0)
-              throw new Error("有効なシフト予定が1件も見つかりませんでした");
+              if not target_codes:
+                  raise Exception(f"'{target_name}' さんの行からシフト記号が見つかりませんでした。")
 
-            log(`✅ ${events.length}件のシフトを抽出しました`, "success");
+              log(f"計 {len(target_codes)} 件の記号を抽出しました。")
 
-            generateICS(events, targetName);
-          } catch (err) {
-            log(`❌ エラー: ${err.message}`, "error");
-            console.error(err);
-          }
-        });
+              # 4. カレンダー生成 (31日間分)
+              c = Calendar()
+              tz = pytz.timezone("Asia/Tokyo")
+              count = 0
 
-      // ====================== Python版ロジックを完全再現 ======================
+              for i, code in enumerate(target_codes):
+                  if i >= 31: break # 最大31日間
 
-      function groupIntoRows(items, tolerance = 8) {
-        const rowMap = new Map();
-        items.forEach((item) => {
-          const key = Math.round(item.y / tolerance) * tolerance;
-          if (!rowMap.has(key)) rowMap.set(key, []);
-          rowMap.get(key).push(item);
-        });
-        return Array.from(rowMap.values())
-          .map((row) => row.sort((a, b) => a.x - b.x))
-          .sort((a, b) => b[0].y - a[0].y);
-      }
+                  target_date = start_dt + timedelta(days=i)
+                  if code in SHIFT_MASTER:
+                      st, en = SHIFT_MASTER[code]
+                      sh, sm = map(int, st.split(':'))
+                      eh, em = map(int, en.split(':'))
 
-      function findDateHeader(rows) {
-        for (const row of rows) {
-          const numericCells = row.filter((item) => /^\d{1,2}$/.test(item.str));
-          if (numericCells.length >= 12) {
-            // ← Python版と同じ「>10」基準に緩和
-            const daySequence = numericCells.map((n) => parseInt(n.str));
-            const columnXs = numericCells.map((n) => n.x);
+                      ev = Event()
+                      ev.name = f"{code}"
+                      begin = tz.localize(target_date.replace(hour=sh, minute=sm))
+                      end = tz.localize(target_date.replace(hour=eh, minute=em))
+                      if end <= begin: end += timedelta(days=1)
 
-            let year = 2026,
-              month = 3;
-            const fullText = rows
-              .flat()
-              .map((i) => i.str)
-              .join(" ");
-            const yearMatch = fullText.match(/(\d{4})\s*年/);
-            if (yearMatch) year = parseInt(yearMatch[1]);
-            const monthMatch = fullText.match(
-              /(\d{1,2})\s*月\s*(\d{1,2})\s*日/,
-            );
-            if (monthMatch) month = parseInt(monthMatch[1]);
+                      ev.begin, ev.end = begin, end
+                      c.events.add(ev)
+                      log(f"  [登録] {target_date.strftime('%m/%d')}: {code}")
+                      count += 1
 
-            log(
-              `✅ 日付ヘッダー検出成功（${numericCells.length}個の数字）`,
-              "success",
-            );
-            return {
-              columnXs,
-              daySequence,
-              startYear: year,
-              startMonth: month,
-            };
-          }
-        }
-        return {};
-      }
+              # 5. ファイル保存
+              ics_str = str(c).replace('\n', '\r\n')
+              blob = window.Blob.new([ics_str], {type: "text/calendar;charset=utf-8"})
+              url = window.URL.createObjectURL(blob)
+              link = document.createElement("a")
+              link.href, link.download = url, f"golf_shift_{target_name}.ics"
+              link.click()
 
-      function findTargetRow(rows, name) {
-        const normalize = (s) =>
-          String(s)
-            .replace(/[\s　（）()0-9]/g, "")
-            .trim();
-        const searchKeyword = normalize(name);
+              log(f"--- 完了: {count}件出力しました ---")
 
-        for (const row of rows) {
-          const rowTextCombined = row
-            .map((item) => normalize(item.str))
-            .join("");
-          if (rowTextCombined.includes(searchKeyword)) {
-            return row;
-          }
-        }
-        return null;
-      }
-
-      function extractTimeMapping(items) {
-        const map = {};
-        const fullText = items.map((i) => i.str).join(" ");
-
-        // Python版と完全に同じ正規表現
-        const timePattern =
-          /([A-Z]{1,2})\s*(\d{1,2})\s*[:：]\s*(\d{2})\s*[^0-9]+\s*(\d{1,2})\s*[:：]\s*(\d{2})/g;
-        let match;
-        while ((match = timePattern.exec(fullText)) !== null) {
-          const symbol = match[1];
-          const sh = parseInt(match[2]);
-          const sm = parseInt(match[3]);
-          const eh = parseInt(match[4]);
-          const em = parseInt(match[5]);
-          map[symbol] = { startH: sh, startM: sm, endH: eh, endM: em };
-        }
-
-        // PDF特有のフォールバック（Python版と同一）
-        const fallback = {
-          FA: { startH: 8, startM: 30, endH: 15, endM: 0 },
-          FB: { startH: 8, startM: 30, endH: 16, endM: 0 },
-          FC: { startH: 8, startM: 30, endH: 13, endM: 0 },
-          FD: { startH: 11, startM: 0, endH: 17, endM: 0 },
-          FE: { startH: 12, startM: 0, endH: 18, endM: 0 },
-          FF: { startH: 12, startM: 0, endH: 20, endM: 0 },
-          FG: { startH: 13, startM: 0, endH: 17, endM: 0 },
-          FH: { startH: 13, startM: 0, endH: 18, endM: 0 },
-          FI: { startH: 13, startM: 0, endH: 20, endM: 0 },
-          FJ: { startH: 15, startM: 0, endH: 20, endM: 0 },
-          FK: { startH: 15, startM: 0, endH: 23, endM: 0 },
-          FL: { startH: 16, startM: 0, endH: 20, endM: 0 },
-          FM: { startH: 16, startM: 0, endH: 23, endM: 0 },
-          FN: { startH: 17, startM: 0, endH: 23, endM: 0 },
-          FO: { startH: 18, startM: 0, endH: 23, endM: 0 },
-          FP: { startH: 19, startM: 0, endH: 23, endM: 0 },
-          FQ: { startH: 20, startM: 0, endH: 23, endM: 0 },
-          J: { startH: 14, startM: 15, endH: 23, endM: 15 },
-          NL: { startH: 8, startM: 30, endH: 17, endM: 30 },
-          FW: { startH: 0, startM: 0, endH: 0, endM: 0 },
-        };
-
-        return { ...fallback, ...map };
-      }
-
-      function extractEvents(
-        targetRow,
-        columnXs,
-        daySequence,
-        startYear,
-        startMonth,
-        timeMapping,
-        personName,
-      ) {
-        const events = [];
-        let currentYear = startYear;
-        let currentMonth = startMonth;
-        let lastDay = 0;
-
-        for (let i = 0; i < daySequence.length; i++) {
-          const day = daySequence[i];
-          if (day < lastDay) {
-            currentMonth++;
-            if (currentMonth > 12) {
-              currentMonth = 1;
-              currentYear++;
-            }
-          }
-          lastDay = day;
-
-          const colX = columnXs[i];
-          const cellItems = targetRow.filter(
-            (item) => Math.abs(item.x - colX) < 40,
-          );
-          let cellText = cellItems
-            .map((item) => item.str)
-            .join(" ")
-            .trim();
-
-          if (!cellText || cellText === "休" || cellText.includes("希"))
-            continue;
-
-          const parts = cellText.split(/\s+/);
-          let validSymbol = null;
-          for (const p of parts) {
-            if (timeMapping[p]) {
-              validSymbol = p;
-              break;
-            }
-          }
-
-          if (validSymbol) {
-            const t = timeMapping[validSymbol];
-            let endDay = day,
-              endMonth = currentMonth,
-              endYear = currentYear;
-            if (
-              t.endH < t.startH ||
-              (t.endH === t.startH && t.endM < t.startM)
-            ) {
-              const temp = new Date(currentYear, currentMonth - 1, day + 1);
-              endDay = temp.getDate();
-              endMonth = temp.getMonth() + 1;
-              endYear = temp.getFullYear();
-            }
-
-            events.push({
-              summary: validSymbol,
-              year: currentYear,
-              month: currentMonth,
-              day: day,
-              startH: t.startH,
-              startM: t.startM,
-              endH: t.endH,
-              endM: t.endM,
-            });
-          }
-        }
-        return events;
-      }
-
-      function generateICS(events, personName) {
-        let ics = [
-          "BEGIN:VCALENDAR",
-          "VERSION:2.0",
-          "PRODID:-//GolfShiftConverter//JA//1.0",
-          "X-WR-CALNAME:" + personName + "さんのゴルフシフト",
-          "X-WR-TIMEZONE:Asia/Tokyo",
-        ];
-
-        const pad = (n) => n.toString().padStart(2, "0");
-
-        events.forEach((ev, idx) => {
-          let endDay = ev.day,
-            endMonth = ev.month,
-            endYear = ev.year;
-          if (
-            ev.endH < ev.startH ||
-            (ev.endH === ev.startH && ev.endM < ev.startM)
-          ) {
-            const temp = new Date(ev.year, ev.month - 1, ev.day + 1);
-            endDay = temp.getDate();
-            endMonth = temp.getMonth() + 1;
-            endYear = temp.getFullYear();
-          }
-
-          const startStr = `${ev.year}${pad(ev.month)}${pad(ev.day)}T${pad(ev.startH)}${pad(ev.startM)}00`;
-          const endStr = `${endYear}${pad(endMonth)}${pad(endDay)}T${pad(ev.endH)}${pad(ev.endM)}00`;
-
-          ics.push("BEGIN:VEVENT");
-          ics.push(`SUMMARY:シフト [${ev.summary}]`);
-          ics.push(`DTSTART;TZID=Asia/Tokyo:${startStr}`);
-          ics.push(`DTEND;TZID=Asia/Tokyo:${endStr}`);
-          ics.push(`UID:shift-${personName}-${idx}-${Date.now()}@example.com`);
-          ics.push("END:VEVENT");
-        });
-
-        ics.push("END:VCALENDAR");
-
-        const blob = new Blob([ics.join("\r\n")], { type: "text/calendar" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${personName}_ゴルフシフト_${new Date().toISOString().slice(0, 10)}.ics`;
-        a.click();
-        URL.revokeObjectURL(url);
-
-        log(
-          "🎉 iCSファイルをダウンロードしました！（Googleカレンダーなどにインポートしてください）",
-          "success",
-        );
-      }
+          except Exception as e:
+              log(f"【エラー】 {str(e)}")
     </script>
   </body>
 </html>
