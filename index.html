@@ -235,15 +235,26 @@
               start_dt = datetime(int(year_match.group(1)), int(month_match.group(1)), int(month_match.group(2)))
               log(f"開始日: {start_dt.strftime('%Y/%m/%d')}")
 
+              expected_dates = []
+              for i in range(32): # 安全のため少し多めに回す
+                  d = start_dt + timedelta(days=i)
+                  expected_dates.append(d)
+                  if d.day == 20 and i > 20: # 翌月の20日に到達したら終了
+                      break
 
               date_x_map = {}
               for y in sorted(rows.keys(), reverse=True):
                   items = sorted(rows[y], key=lambda x: x[0])
+                  # 1〜31の数字を抽出
                   day_nums = [it for it in items if it[1].isdigit() and 1 <= int(it[1]) <= 31]
-                  if len(day_nums) >= 10:
-                      for x_pos, day_val in day_nums:
-                          date_x_map[int(day_val)] = x_pos
-                      log("日付行のレイアウトを特定しました。")
+                  
+                  if len(day_nums) >= 28: # シフト表の日付行であると判断
+                      for i, (x_pos, day_val) in enumerate(day_nums):
+                          if i < len(expected_dates):
+                              target_date = expected_dates[i]
+                              # (月, 日) のペアで座標を記録
+                              date_x_map[(target_date.month, target_date.day)] = x_pos
+                      log("日付行（21日〜翌月20日）のレイアウトを固定ルールに基づき特定しました。")
                       break
 
               if not date_x_map:
@@ -251,7 +262,7 @@
 
 
 
-              # 4. 対象者の行を特定し、日付座標に基づいてシフトを抽出
+              # --- 4. 対象者の行を特定し、日付座標に基づいてシフトを抽出 ---
               atcb_events = []
               count = 0
               sorted_keys = sorted(SHIFT_MASTER.keys(), key=len, reverse=True)
@@ -264,19 +275,22 @@
                   if target_name in line_str:
                       log("対象者の行を特定。照合を開始します...")
 
-                      for i in range(32):
-                          curr_date = start_dt + timedelta(days=i)
-                          day_num = curr_date.day
+                      # expected_dates（21日から翌月20日までのリスト）を回す
+                      for curr_date in expected_dates:
+                          # 月と日のペアで座標マップからX座標を引く
+                          key = (curr_date.month, curr_date.day)
 
-                          if day_num in date_x_map:
-                              target_x = date_x_map[day_num]
+                          if key in date_x_map:
+                              target_x = date_x_map[key]
                               found_code = None
 
-                              # 日付のX座標に近い(±25px)位置にあるテキストをチェック
+                              # 日付のX座標に近い(±10pxに少し広げると安定します)位置にあるテキストをチェック
                               for x_pos, text in items:
-                                  if abs(x_pos - target_x) < 5:
-                                      if re.match(shift_pattern, text):
-                                          found_code = text
+                                  if abs(x_pos - target_x) < 10:
+                                      # シフト記号にマッチするか確認
+                                      match = re.search(shift_pattern, text)
+                                      if match:
+                                          found_code = match.group(1)
                                           break
 
                               if found_code:
@@ -284,9 +298,13 @@
                                   sh, sm = map(int, st.split(':'))
                                   eh, em = map(int, en.split(':'))
 
+                                  # 開始日時と終了日時を設定
                                   begin_dt = curr_date.replace(hour=sh, minute=sm)
+                                  
+                                  # 終了時刻が開始時刻より前（例: 23:00終了など）の場合の翌日処理
                                   end_dt = curr_date.replace(hour=eh, minute=em)
-                                  if end_dt <= begin_dt: end_dt += timedelta(days=1)
+                                  if end_dt <= begin_dt: 
+                                      end_dt += timedelta(days=1)
 
                                   atcb_events.append({
                                       "name": f"{found_code}",
