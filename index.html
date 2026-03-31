@@ -2,7 +2,10 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0"
+    />
     <title>シフト抽出変換ツール</title>
     <link
       rel="stylesheet"
@@ -119,51 +122,54 @@
     </div>
 
     <script type="text/javascript">
-  window.updateCalendarButton = function (eventsJson, targetName) {
-    const events = JSON.parse(eventsJson);
-    const container = document.getElementById("calendar_button_container");
+      window.updateCalendarButton = function (eventsJson, targetName) {
+        const events = JSON.parse(eventsJson);
+        const container = document.getElementById("calendar_button_container");
 
-    container.innerHTML = "";
-    container.style.display = "block";
+        container.innerHTML = "";
+        container.style.display = "block";
 
-    if (events.length === 0) {
-      container.innerHTML = "<p style='color:#888; text-align:center; padding:20px;'>シフトが見つかりませんでした。</p>";
-      return;
-    }
+        if (events.length === 0) {
+          container.innerHTML =
+            "<p style='color:#888; text-align:center; padding:20px;'>シフトが見つかりませんでした。</p>";
+          return;
+        }
 
-    console.log("add-to-calendar-button 生成開始 - イベント数:", events.length);
+        // 複数イベントの場合 → 1つのボタンに「リスト」としてまとめる（公式推奨）
+        // 各イベントを個別のボタンにするより、1ボタンでモーダルリスト表示の方がシンプルで安定
+        const mainEvent = events[0]; // 最初のイベントをベースにタイトルなど設定
 
-    // 複数イベントの場合 → 1つのボタンに「リスト」としてまとめる（公式推奨）
-    // 各イベントを個別のボタンにするより、1ボタンでモーダルリスト表示の方がシンプルで安定
-    const mainEvent = events[0]; // 最初のイベントをベースにタイトルなど設定
+        const btn = document.createElement("add-to-calendar-button");
 
-    const btn = document.createElement("add-to-calendar-button");
+        // 必須属性を設定
+        btn.setAttribute("name", `シフト_${targetName}`);
+        btn.setAttribute("description", "PDFから抽出されたシフト予定です。");
+        btn.setAttribute("options", "['Apple', 'iCal']");
+        btn.setAttribute("theme", "dark");
+        btn.setAttribute("listStyle", "modal");
+        btn.setAttribute("language", "ja");
+        btn.setAttribute("timeZone", "Asia/Tokyo");
+        btn.setAttribute("label", "カレンダーに一括登録");
 
-    // 必須属性を設定
-    btn.setAttribute("name", `シフト_${targetName}`);
-    btn.setAttribute("description", "PDFから抽出されたシフト予定です。");
-    btn.setAttribute("options", "['Apple', 'iCal']");
-    btn.setAttribute("theme", "dark");
-    btn.setAttribute("listStyle", "modal");
-    btn.setAttribute("language", "ja");
-    btn.setAttribute("timeZone", "Asia/Tokyo");
-    btn.setAttribute("label", "カレンダーに一括登録");
+        // 複数イベントは "dates" 属性としてJSON文字列で渡す（v2で対応）
+        btn.setAttribute(
+          "dates",
+          JSON.stringify(
+            events.map((e) => ({
+              name: e.name,
+              startDate: e.startDate,
+              startTime: e.startTime,
+              endDate: e.endDate,
+              endTime: e.endTime,
+              timeZone: "Asia/Tokyo",
+            })),
+          ),
+        );
 
-    // 複数イベントは "dates" 属性としてJSON文字列で渡す（v2で対応）
-    btn.setAttribute("dates", JSON.stringify(events.map(e => ({
-      name: e.name,
-      startDate: e.startDate,
-      startTime: e.startTime,
-      endDate: e.endDate,
-      endTime: e.endTime,
-      timeZone: "Asia/Tokyo"
-    }))));
+        container.appendChild(btn);
 
-    container.appendChild(btn);
-
-    console.log("Web Component追加完了");
-  };
-</script>
+      };
+    </script>
 
     <script type="py">
       import io
@@ -183,7 +189,8 @@
           "FM": ("16:00", "23:00"), "FN": ("17:00", "23:00"), "FO": ("18:00", "23:00"),
           "FP": ("19:00", "23:00"), "FQ": ("20:00", "23:00"), "FR": ("09:00", "13:00"),
           "FS": ("13:00", "16:00"), "FT": ("15:00", "16:00"), "FU": ("15:00", "17:00"),
-          "FV": ("15:00", "19:00"), "NN": ("09:00", "18:00"), "NL": ("08:30", "17:30")
+          "FV": ("15:00", "19:00"), "NN": ("09:00", "18:00"), "NL": ("08:30", "17:30"),
+          "E": ("10:00", "19:00"), "C": ("08:30", "17:30"), "J": ("09:00", "18:00")
       }
 
       def log(msg):
@@ -196,8 +203,6 @@
           target_name = document.querySelector("#target_name").value.strip()
           files = document.querySelector("#pdf_upload").files
           document.querySelector("#console").innerText = ""
-          document.querySelector("#calendar_button_container").style.display = "none"
-
           if not target_name or len(files) == 0:
               window.alert("名前とファイルを入力してください")
               return
@@ -205,126 +210,97 @@
           try:
               log(f"--- プロセス開始 ---")
               log(f"対象者: {target_name}")
-
               log(f"")
-              log(f"処理中...")
+              log(f"処理中…")
               log(f"")
-
               file = files.item(0)
               array_buffer = await file.arrayBuffer()
               pdf_data = io.BytesIO(array_buffer.to_bytes())
 
-              rows = {}
-              full_text_for_date = ""
-
+              temp_rows = {}
+              full_text = ""
               for page_layout in extract_pages(pdf_data):
                   for element in page_layout:
                       if isinstance(element, LTTextContainer):
                           text = element.get_text().strip()
                           if not text: continue
-                          full_text_for_date += text + "\n"
-                          y_key = int(element.y0)
-                          if y_key not in rows: rows[y_key] = []
-                          rows[y_key].append((element.x0, text))
+                          full_text += text + "\n"
+                          # 行のグルーピング (5px誤差)
+                          found_y = next((y for y in temp_rows if abs(element.y0 - y) < 3), None)
+                          y_key = found_y if found_y is not None else element.y0
+                          if y_key not in temp_rows: temp_rows[y_key] = []
+                          temp_rows[y_key].append((element.x0, text))
 
-              year_match = re.search(r'(\d{4})\s*年', full_text_for_date)
-              month_match = re.search(r'(\d{1,2})\s*月\s*(\d{1,2})\s*日', full_text_for_date)
-              if not year_match or not month_match:
-                  raise Exception("日付（◯年◯月◯日）を特定できませんでした。")
-
-              start_dt = datetime(int(year_match.group(1)), int(month_match.group(1)), int(month_match.group(2)))
-              log(f"開始日: {start_dt.strftime('%Y/%m/%d')}")
+              # 開始日の特定
+              ym = re.search(r'(\d{4})\s*年', full_text)
+              mm = re.search(r'(\d{1,2})\s*月\s*(\d{1,2})\s*日', full_text)
+              if not ym or not mm: raise Exception("日付を特定できません")
+              start_dt = datetime(int(ym.group(1)), int(mm.group(1)), int(mm.group(2)))
+              log(f"期間開始: {start_dt.strftime('%Y/%m/%d')}")
 
               expected_dates = []
-              for i in range(32): # 安全のため少し多めに回す
+              for i in range(32):
                   d = start_dt + timedelta(days=i)
                   expected_dates.append(d)
-                  if d.day == 20 and i > 20: # 翌月の20日に到達したら終了
-                      break
+                  if d.day == 20 and i > 15: break
 
+              # 日付行の特定 (temp_rowsを使用)
               date_x_map = {}
-              for y in sorted(rows.keys(), reverse=True):
-                  items = sorted(rows[y], key=lambda x: x[0])
-                  # 1〜31の数字を抽出
-                  day_nums = [it for it in items if it[1].isdigit() and 1 <= int(it[1]) <= 31]
-                  
-                  if len(day_nums) >= 28: # シフト表の日付行であると判断
-                      for i, (x_pos, day_val) in enumerate(day_nums):
+              for y in sorted(temp_rows.keys(), reverse=True):
+                  items = sorted(temp_rows[y], key=lambda x: x[0])
+                  # 数字が含まれる要素を抽出
+                  day_candidates = [(x, re.findall(r'\d+', t)) for x, t in items]
+                  day_nums = [(x, int(d[0])) for x, d in day_candidates if d and 1 <= int(d[0]) <= 31]
+
+                  if len(day_nums) >= 20: # 1行に大量の数字があれば日付行
+                      for i, (x_pos, _) in enumerate(day_nums):
                           if i < len(expected_dates):
-                              target_date = expected_dates[i]
-                              # (月, 日) のペアで座標を記録
-                              date_x_map[(target_date.month, target_date.day)] = x_pos
-                      log("日付行（21日〜翌月20日）のレイアウトを固定ルールに基づき特定しました。")
+                              date_x_map[(expected_dates[i].month, expected_dates[i].day)] = x_pos
                       break
 
-              if not date_x_map:
-                  raise Exception("日付の配置を特定できませんでした。")
+              if not date_x_map: raise Exception("日付レイアウト解析失敗")
 
-
-
-              # --- 4. 対象者の行を特定し、日付座標に基づいてシフトを抽出 ---
+              # シフト抽出
               atcb_events = []
-              count = 0
-              sorted_keys = sorted(SHIFT_MASTER.keys(), key=len, reverse=True)
-              shift_pattern = r'^(' + '|'.join(re.escape(k) for k in sorted_keys) + r')$'
+              shift_keys = sorted(SHIFT_MASTER.keys(), key=len, reverse=True)
+              pattern = r'(' + '|'.join(re.escape(k) for k in shift_keys) + r')'
 
-              for y in sorted(rows.keys(), reverse=True):
-                  items = sorted(rows[y], key=lambda x: x[0])
-                  line_str = " ".join([it[1] for it in items])
-
-                  if target_name in line_str:
-                      log("対象者の行を特定。照合を開始します...")
-
-                      # expected_dates（21日から翌月20日までのリスト）を回す
+              for y in sorted(temp_rows.keys(), reverse=True):
+                  items = sorted(temp_rows[y], key=lambda x: x[0])
+                  line_txt = "".join([it[1] for it in items])
+                  if target_name in line_txt:
                       for curr_date in expected_dates:
-                          # 月と日のペアで座標マップからX座標を引く
-                          key = (curr_date.month, curr_date.day)
+                          target_x = date_x_map.get((curr_date.month, curr_date.day))
+                          if target_x is None: continue
 
-                          if key in date_x_map:
-                              target_x = date_x_map[key]
-                              found_code = None
+                          # X座標が近い(25px)要素からシフト記号を探す
+                          for x_pos, text in items:
+                              if abs(x_pos - target_x) < 5:
+                                  m = re.search(pattern, text)
+                                  if m:
+                                      code = m.group(1)
+                                      st, en = SHIFT_MASTER[code]
+                                      # 時刻計算
+                                      sh, sm = map(int, st.split(':'))
+                                      eh, em = map(int, en.split(':'))
+                                      b_dt = curr_date.replace(hour=sh, minute=sm)
+                                      e_dt = curr_date.replace(hour=eh, minute=em)
+                                      if e_dt <= b_dt: e_dt += timedelta(days=1)
 
-                              # 日付のX座標に近い(±10pxに少し広げると安定します)位置にあるテキストをチェック
-                              for x_pos, text in items:
-                                  if abs(x_pos - target_x) < 10:
-                                      # シフト記号にマッチするか確認
-                                      match = re.search(shift_pattern, text)
-                                      if match:
-                                          found_code = match.group(1)
-                                          break
-
-                              if found_code:
-                                  st, en = SHIFT_MASTER[found_code]
-                                  sh, sm = map(int, st.split(':'))
-                                  eh, em = map(int, en.split(':'))
-
-                                  # 開始日時と終了日時を設定
-                                  begin_dt = curr_date.replace(hour=sh, minute=sm)
-                                  
-                                  # 終了時刻が開始時刻より前（例: 23:00終了など）の場合の翌日処理
-                                  end_dt = curr_date.replace(hour=eh, minute=em)
-                                  if end_dt <= begin_dt: 
-                                      end_dt += timedelta(days=1)
-
-                                  atcb_events.append({
-                                      "name": f"{found_code}",
-                                      "startDate": begin_dt.strftime("%Y-%m-%d"),
-                                      "startTime": begin_dt.strftime("%H:%M"),
-                                      "endDate": end_dt.strftime("%Y-%m-%d"),
-                                      "endTime": end_dt.strftime("%H:%M"),
-                                      "timeZone": "Asia/Tokyo"
-                                  })
-                                  log(f"{curr_date.strftime('%m/%d')} {found_code} ({st}-{en})")
-                                  count += 1
+                                      atcb_events.append({
+                                          "name": f"シフト:{code}",
+                                          "startDate": b_dt.strftime("%Y-%m-%d"),
+                                          "startTime": b_dt.strftime("%H:%M"),
+                                          "endDate": e_dt.strftime("%Y-%m-%d"),
+                                          "endTime": e_dt.strftime("%H:%M")
+                                      })
+                                      log(f"{curr_date.strftime('%m/%d')} -> {code} ({st} - {en})")
+                                      break
                       break
 
-              if count == 0:
-                  raise Exception("シフト記号が1件も見つかりませんでした。")
-
-              # 5. UI更新
+              if not atcb_events: raise Exception("シフトが見つかりませんでした")
               window.updateCalendarButton(json.dumps(atcb_events), target_name)
-              log(f"--- 完了 ---")
-              log("[カレンダーに一括登録]ボタンからカレンダーに登録できます。")
+              log("--- 完了 ---")
 
           except Exception as e:
               log(f"【エラー】 {str(e)}")
