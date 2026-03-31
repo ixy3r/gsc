@@ -236,7 +236,6 @@
               mm = re.search(r'(\d{1,2})\s*月\s*(\d{1,2})\s*日', full_text)
               if not ym or not mm: raise Exception("日付を特定できません")
               start_dt = datetime(int(ym.group(1)), int(mm.group(1)), int(mm.group(2)))
-              log(f"期間開始: {start_dt.strftime('%Y/%m/%d')}")
 
               expected_dates = []
               for i in range(32):
