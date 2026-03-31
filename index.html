@@ -5,17 +5,17 @@
     <title>シフト抽出変換ツール</title>
     <link
       rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/add-to-calendar-button@2/assets/css/atcb.min.css"
+    />
+    <link
+      rel="stylesheet"
       href="https://pyscript.net/releases/2024.1.1/core.css"
     />
     <script
       type="module"
       src="https://pyscript.net/releases/2024.1.1/core.js"
     ></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/add-to-calendar-button@2"
-      async
-      defer
-    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/add-to-calendar-button@2"></script>
     <style>
       body {
         font-family: sans-serif;
@@ -27,6 +27,8 @@
       }
       .container {
         padding: 15px;
+        width: 60%;
+        max-width: 800px;
       }
       .discription {
         margin-bottom: 20px;
@@ -66,6 +68,8 @@
         font-weight: bold;
       }
       #console {
+        width: calc(100% - 30px);
+        max-width: 800px;
         margin-top: 20px;
         padding: 15px;
         border-radius: 8px;
@@ -84,9 +88,7 @@
         margin-top: 20px;
       }
     </style>
-    <py-config>
-      packages = ["pdfminer.six", "ics==0.7", "tatsu==5.7.3", "pytz"]
-    </py-config>
+    <py-config> packages = ["pdfminer.six", "tatsu==5.7.3", "pytz"] </py-config>
   </head>
   <body>
     <div class="container">
@@ -115,25 +117,51 @@
     </div>
 
     <script type="text/javascript">
-      window.updateCalendarButton = function (eventsJson, targetName) {
-        const events = JSON.parse(eventsJson);
-        const container = document.getElementById("calendar_button_container");
-        container.innerHTML = "";
+  window.updateCalendarButton = function (eventsJson, targetName) {
+    const events = JSON.parse(eventsJson);
+    const container = document.getElementById("calendar_button_container");
 
-        if (events.length === 0) return;
+    container.innerHTML = "";
+    container.style.display = "block";
 
-        const btn = document.createElement("add-to-calendar-button");
-        btn.setAttribute("name", `シフト_${targetName}`);
-        btn.setAttribute("options", "['Apple','iCal']");
-        btn.setAttribute("theme", "dark");
-        btn.setAttribute("listStyle", "modal");
-        btn.setAttribute("label", "カレンダーに一括登録");
-        btn.setAttribute("language", "ja");
-        btn.setAttribute("dates", JSON.stringify(events));
+    if (events.length === 0) {
+      container.innerHTML = "<p style='color:#888; text-align:center; padding:20px;'>シフトが見つかりませんでした。</p>";
+      return;
+    }
 
-        container.appendChild(btn);
-      };
-    </script>
+    console.log("add-to-calendar-button 生成開始 - イベント数:", events.length);
+
+    // 複数イベントの場合 → 1つのボタンに「リスト」としてまとめる（公式推奨）
+    // 各イベントを個別のボタンにするより、1ボタンでモーダルリスト表示の方がシンプルで安定
+    const mainEvent = events[0]; // 最初のイベントをベースにタイトルなど設定
+
+    const btn = document.createElement("add-to-calendar-button");
+
+    // 必須属性を設定
+    btn.setAttribute("name", `シフト_${targetName}`);
+    btn.setAttribute("description", "PDFから抽出されたシフト予定です。");
+    btn.setAttribute("options", "['Apple','Google','iCal']");
+    btn.setAttribute("theme", "dark");
+    btn.setAttribute("listStyle", "modal");
+    btn.setAttribute("language", "ja");
+    btn.setAttribute("timeZone", "Asia/Tokyo");
+    btn.setAttribute("label", "カレンダーに一括登録");
+
+    // 複数イベントは "dates" 属性としてJSON文字列で渡す（v2で対応）
+    btn.setAttribute("dates", JSON.stringify(events.map(e => ({
+      name: e.name,
+      startDate: e.startDate,
+      startTime: e.startTime,
+      endDate: e.endDate,
+      endTime: e.endTime,
+      timeZone: "Asia/Tokyo"
+    }))));
+
+    container.appendChild(btn);
+
+    console.log("Web Component追加完了");
+  };
+</script>
 
     <script type="py">
       import io
@@ -141,23 +169,19 @@
       import json
       from datetime import datetime, timedelta
       import pytz
-      from ics import Calendar, Event
       from pdfminer.high_level import extract_pages
       from pdfminer.layout import LTTextContainer
       from pyscript import document, window
 
       SHIFT_MASTER = {
-          "A": ("07:00", "16:00"), "B": ("08:00", "17:00"), "C": ("08:30", "17:30"),
-          "D": ("09:00", "18:00"), "E": ("10:00", "19:00"), "J": ("14:15", "23:15"),
-          "NL": ("08:30", "17:30"), "G": ("13:00", "17:00"), "FG": ("13:00", "17:00"),
-          "5-14": ("05:00", "14:00"), "FA": ("08:30", "15:00"), "FB": ("08:30", "16:00"),
-          "FC": ("08:30", "13:00"), "FD": ("11:00", "17:00"), "FE": ("12:00", "18:00"),
-          "FF": ("12:00", "20:00"), "FH": ("13:00", "22:00"), "FI": ("13:15", "22:15"),
-          "FJ": ("14:00", "23:00"), "FK": ("15:00", "23:00"), "FL": ("17:00", "23:00"),
-          "FM": ("18:00", "23:00"), "FN": ("19:00", "23:00"), "FO": ("20:00", "23:00"),
-          "FP": ("06:00", "15:00"), "FQ": ("08:00", "16:00"), "FR": ("08:00", "13:00"),
-          "FS": ("09:00", "18:00"), "FT": ("09:00", "14:00"), "FU": ("10:00", "19:00"),
-          "FV": ("11:00", "19:00")
+          "FA": ("08:30", "15:00"), "FB": ("08:30", "16:00"), "FC": ("08:30", "13:00"),
+          "FD": ("11:00", "17:00"), "FE": ("12:00", "18:00"), "FF": ("12:00", "20:00"),
+          "FG": ("13:00", "17:00"), "FH": ("13:00", "18:00"), "FI": ("13:00", "20:00"),
+          "FJ": ("15:00", "20:00"), "FK": ("15:00", "23:00"), "FL": ("16:00", "20:00"),
+          "FM": ("16:00", "23:00"), "FN": ("17:00", "23:00"), "FO": ("18:00", "23:00"),
+          "FP": ("19:00", "23:00"), "FQ": ("20:00", "23:00"), "FR": ("09:00", "13:00"),
+          "FS": ("13:00", "16:00"), "FT": ("15:00", "16:00"), "FU": ("15:00", "17:00"),
+          "FV": ("15:00", "19:00"), "NN": ("09:00", "18:00"), "NL": ("08:30", "17:30")
       }
 
       def log(msg):
@@ -170,7 +194,7 @@
           target_name = document.querySelector("#target_name").value.strip()
           files = document.querySelector("#pdf_upload").files
           document.querySelector("#console").innerText = ""
-          document.querySelector("#calendar_button_container").innerHTML = ""
+          document.querySelector("#calendar_button_container").style.display = "none"
 
           if not target_name or len(files) == 0:
               window.alert("名前とファイルを入力してください")
@@ -207,60 +231,80 @@
                   raise Exception("日付（◯年◯月◯日）を特定できませんでした。")
 
               start_dt = datetime(int(year_match.group(1)), int(month_match.group(1)), int(month_match.group(2)))
-              log(f"期間開始日: {start_dt.strftime('%Y/%m/%d')}")
+              log(f"開始日: {start_dt.strftime('%Y/%m/%d')}")
 
-              target_codes = []
+
+              date_x_map = {}
               for y in sorted(rows.keys(), reverse=True):
                   items = sorted(rows[y], key=lambda x: x[0])
-                  row_content = [it[1] for it in items]
-                  line_str = " ".join(row_content)
-
-                  if target_name in line_str:
-                      sorted_keys = sorted(SHIFT_MASTER.keys(), key=len, reverse=True)
-                      pattern = r'\b(' + '|'.join(re.escape(k) for k in sorted_keys) + r')\b'
-                      target_codes = re.findall(pattern, line_str)
+                  day_nums = [it for it in items if it[1].isdigit() and 1 <= int(it[1]) <= 31]
+                  if len(day_nums) >= 10:
+                      for x_pos, day_val in day_nums:
+                          date_x_map[int(day_val)] = x_pos
+                      log("日付行のレイアウトを特定しました。")
                       break
 
-              if not target_codes:
-                  raise Exception(f"'{target_name}' さんの行からシフト記号が見つかりませんでした。")
+              if not date_x_map:
+                  raise Exception("日付の配置を特定できませんでした。")
 
-              log(f"計 {len(target_codes)} 件のイベントを抽出しました。")
 
-              # カレンダー登録用のイベントリストを作成
+
+              # 4. 対象者の行を特定し、日付座標に基づいてシフトを抽出
               atcb_events = []
               count = 0
+              sorted_keys = sorted(SHIFT_MASTER.keys(), key=len, reverse=True)
+              shift_pattern = r'^(' + '|'.join(re.escape(k) for k in sorted_keys) + r')$'
 
-              for i, code in enumerate(target_codes):
-                  if i >= 31: break
+              for y in sorted(rows.keys(), reverse=True):
+                  items = sorted(rows[y], key=lambda x: x[0])
+                  line_str = " ".join([it[1] for it in items])
 
-                  target_date = start_dt + timedelta(days=i)
-                  if code in SHIFT_MASTER:
-                      st, en = SHIFT_MASTER[code]
-                      sh, sm = map(int, st.split(':'))
-                      eh, em = map(int, en.split(':'))
+                  if target_name in line_str:
+                      log("対象者の行を特定。照合を開始します...")
 
-                      begin_dt = target_date.replace(hour=sh, minute=sm)
-                      end_dt = target_date.replace(hour=eh, minute=em)
-                      if end_dt <= begin_dt: end_dt += timedelta(days=1)
+                      for i in range(32):
+                          curr_date = start_dt + timedelta(days=i)
+                          day_num = curr_date.day
 
-                      # Add to Calendar Button 用の辞書を作成
-                      atcb_events.append({
-                          "name": f"{code}",
-                          "startDate": begin_dt.strftime("%Y-%m-%d"),
-                          "startTime": begin_dt.strftime("%H:%M"),
-                          "endDate": end_dt.strftime("%Y-%m-%d"),
-                          "endTime": end_dt.strftime("%H:%M"),
-                          "timeZone": "Asia/Tokyo"
-                      })
+                          if day_num in date_x_map:
+                              target_x = date_x_map[day_num]
+                              found_code = None
 
-                      log(f"{target_date.strftime('%m/%d')} {code} {st} - {en}")
-                      count += 1
+                              # 日付のX座標に近い(±25px)位置にあるテキストをチェック
+                              for x_pos, text in items:
+                                  if abs(x_pos - target_x) < 5:
+                                      if re.match(shift_pattern, text):
+                                          found_code = text
+                                          break
 
-              # JavaScriptを呼び出してボタンを表示
+                              if found_code:
+                                  st, en = SHIFT_MASTER[found_code]
+                                  sh, sm = map(int, st.split(':'))
+                                  eh, em = map(int, en.split(':'))
+
+                                  begin_dt = curr_date.replace(hour=sh, minute=sm)
+                                  end_dt = curr_date.replace(hour=eh, minute=em)
+                                  if end_dt <= begin_dt: end_dt += timedelta(days=1)
+
+                                  atcb_events.append({
+                                      "name": f"{found_code}",
+                                      "startDate": begin_dt.strftime("%Y-%m-%d"),
+                                      "startTime": begin_dt.strftime("%H:%M"),
+                                      "endDate": end_dt.strftime("%Y-%m-%d"),
+                                      "endTime": end_dt.strftime("%H:%M"),
+                                      "timeZone": "Asia/Tokyo"
+                                  })
+                                  log(f"{curr_date.strftime('%m/%d')} {found_code} ({st}-{en})")
+                                  count += 1
+                      break
+
+              if count == 0:
+                  raise Exception("シフト記号が1件も見つかりませんでした。")
+
+              # 5. UI更新
               window.updateCalendarButton(json.dumps(atcb_events), target_name)
-
               log(f"--- 完了 ---")
-              log("上の[カレンダーに一括登録]ボタンからカレンダーに登録できます。")
+              log("[カレンダーに一括登録]ボタンからカレンダーに登録できます。")
 
           except Exception as e:
               log(f"【エラー】 {str(e)}")
