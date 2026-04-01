@@ -127,7 +127,7 @@
         const container = document.getElementById("calendar_button_container");
 
         container.innerHTML = "";
-        container.style.display = "block";
+        container.style.display = "flex";
 
         if (events.length === 0) {
           container.innerHTML =
@@ -135,23 +135,19 @@
           return;
         }
 
-        // 複数イベントの場合 → 1つのボタンに「リスト」としてまとめる（公式推奨）
-        // 各イベントを個別のボタンにするより、1ボタンでモーダルリスト表示の方がシンプルで安定
-        const mainEvent = events[0]; // 最初のイベントをベースにタイトルなど設定
+        const mainEvent = events[0];
 
         const btn = document.createElement("add-to-calendar-button");
 
         // 必須属性を設定
         btn.setAttribute("name", `シフト_${targetName}`);
         btn.setAttribute("description", "PDFから抽出されたシフト予定です。");
-        btn.setAttribute("options", "['Apple', 'iCal']");
+        btn.setAttribute("options", "'Apple','iCal'");
         btn.setAttribute("theme", "dark");
         btn.setAttribute("listStyle", "modal");
         btn.setAttribute("language", "ja");
         btn.setAttribute("timeZone", "Asia/Tokyo");
         btn.setAttribute("label", "カレンダーに一括登録");
-
-        // 複数イベントは "dates" 属性としてJSON文字列で渡す（v2で対応）
         btn.setAttribute(
           "dates",
           JSON.stringify(
@@ -167,7 +163,6 @@
         );
 
         container.appendChild(btn);
-
       };
     </script>
 
